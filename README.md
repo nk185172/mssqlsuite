@@ -7,7 +7,7 @@ Just copy the code below and modify the line **`install: sqlengine, sqlclient, s
 
 ```yaml
     - name: Install a SQL Server suite of tools
-      uses: potatoqualitee/mssqlsuite@v1.7
+      uses: shaybentk/mssqlsuite@v0.0.1
       with:
         install: sqlengine, sqlclient, sqlpackage, localdb
 ```

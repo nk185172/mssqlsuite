@@ -2,7 +2,7 @@ param (
     [ValidateSet("sqlclient", "sqlpackage", "sqlengine", "localdb")]
     [string[]]$Install,
     [string]$SaPassword,
-    [string]$ShowLog,
+    [bool]$ShowLog,
     [string]$Collation = "SQL_Latin1_General_CP1_CI_AS",
     [ValidateSet("2022","2019", "2017")]
     [string]$Version = "2019",

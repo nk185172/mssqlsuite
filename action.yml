@@ -48,6 +48,7 @@ runs:
 
     - id: psoutput
       if: ${{ inputs.download-only != 'true' }}
+      continue-on-error: true
       shell: pwsh
       env:
         ACCEPT_EULA: "Y"
@@ -70,7 +71,7 @@ runs:
         ${{ github.action_path }}/main.ps1 @params
 
     - id: retry psoutput
-      if: failure()
+      if: steps.psoutput.outcome != 'success'
       shell: pwsh
       env:
         ACCEPT_EULA: "Y"

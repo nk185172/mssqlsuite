@@ -7,10 +7,11 @@ inputs:
   install:
     description: "The apps to install"
     required: true
+    default: "sqlengine"
   sa-password:
     description: "The sa password for the SQL instance"
     required: false
-    default: "dbatools.I0"
+    default: "Qwe12345"
   show-log:
     description: "Show the log file for the docker container"
     required: false
@@ -18,15 +19,35 @@ inputs:
   collation:
     description: "Change the collation associated with the SQL Server instance"
     required: false
-    default: "SQL_Latin1_General_CP1_CI_AS"
+    default: "Latin1_General_CI_AS_KS"
   version:
     description: "The version of SQL Server to install in year format"
     required: false
     default: "2019"
+  download-path:
+    description: "The path of SQL Server to download in local env"
+    required: false
+    default: "C:\temp"
+  download-only:
+    description: "Set this to true for only downloading"
+    required: false
+    default: 'false'
 runs:
   using: "composite"
   steps:
+    - name: download windows installers
+      if: ${{ inputs.download-only == 'true' }}
+      shell: pwsh
+      run: |
+        $params = @{
+            path    = "${{ inputs.download-path }}"
+            version = "${{ inputs.version }}"
+        }
+
+        ${{ github.action_path }}/download.ps1 @params
+
     - id: psoutput
+      if: ${{ inputs.download-only != 'true' }}
       shell: pwsh
       env:
         ACCEPT_EULA: "Y"
@@ -43,6 +64,7 @@ runs:
             ShowLog         = ${{ inputs.show-log }}
             Collation       = "${{ inputs.Collation }}"
             Version         = "${{ inputs.Version }}"
+            Path            = "${{ inputs.download-path }}"
         }
 
         ${{ github.action_path }}/main.ps1 @params

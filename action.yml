@@ -27,7 +27,7 @@ inputs:
   download-path:
     description: "The path of SQL Server to download in local env"
     required: false
-    default: "C:\temp"
+    default: "C:/temp"
   download-only:
     description: "Set this to true for only downloading"
     required: false
@@ -44,7 +44,8 @@ runs:
             version = "${{ inputs.version }}"
         }
 
-        ${{ github.action_path }}/download.ps1 @params
+        .\download.ps1 @params
+      working-directory: ${{ github.action_path }}
 
     - id: psoutput
       if: ${{ inputs.download-only != 'true' }}
@@ -68,7 +69,8 @@ runs:
             Path            = "${{ inputs.download-path }}"
         }
 
-        ${{ github.action_path }}/main.ps1 @params
+        .\main.ps1 @params
+      working-directory: ${{ github.action_path }}
 
     - name: retry psoutput
       if: ${{ steps.psoutput.outcome != 'success' }}
@@ -91,4 +93,5 @@ runs:
             Path            = "${{ inputs.download-path }}"
         }
 
-        ${{ github.action_path }}/main.ps1 @params
+        .\main.ps1 @params
+      working-directory: ${{ github.action_path }}

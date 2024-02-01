@@ -14,8 +14,7 @@ function DownloadWindowsSql($path, $version)
     }
 
     Push-Location $path
-
-    $ProgressPreference = "SilentlyContinue"
+    $ProgressPreference = 'Continue'
 
     switch ($version) {
         "2017" {
@@ -49,6 +48,8 @@ function DownloadWindowsSql($path, $version)
     {
         Write-Host "downloading sqlsetup.box was skipped"
     }
+
+    Write-Output "downloading complete"
 }
 
 try

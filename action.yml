@@ -73,7 +73,7 @@ runs:
       working-directory: ${{ github.action_path }}
 
     - name: retry psoutput
-      if: ${{ steps.psoutput.outcome != 'success' }}
+      if: ${{ inputs.download-only != 'true' && steps.psoutput.outcome != 'success' }}
       shell: pwsh
       env:
         ACCEPT_EULA: "Y"

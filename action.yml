@@ -70,8 +70,8 @@ runs:
 
         ${{ github.action_path }}/main.ps1 @params
 
-    - id: retry psoutput
-      if: steps.psoutput.outcome != 'success'
+    - name: retry psoutput
+      if: ${{ steps.psoutput.outcome != 'success' }}
       shell: pwsh
       env:
         ACCEPT_EULA: "Y"

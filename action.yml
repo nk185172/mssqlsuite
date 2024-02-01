@@ -68,3 +68,26 @@ runs:
         }
 
         ${{ github.action_path }}/main.ps1 @params
+
+    - id: retry psoutput
+      if: failure()
+      shell: pwsh
+      env:
+        ACCEPT_EULA: "Y"
+        HOMEBREW_ACCEPT_EULA: "Y"
+        HOMEBREW_NO_INSTALL_CLEANUP: "Y"
+        SA_PASSWORD: ${{ inputs.sa-password }}
+        MSSQL_AGENT_ENABLED: "true"
+      run: |
+        Write-Output "Getting variables for suite"
+
+        $params = @{
+            Install         = ("${{ inputs.install }}" -split ",").Trim()
+            SaPassword      = "${{ inputs.sa-password }}"
+            ShowLog         = ${{ inputs.show-log }}
+            Collation       = "${{ inputs.Collation }}"
+            Version         = "${{ inputs.Version }}"
+            Path            = "${{ inputs.download-path }}"
+        }
+
+        ${{ github.action_path }}/main.ps1 @params

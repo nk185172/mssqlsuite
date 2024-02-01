@@ -41,17 +41,19 @@ function DownloadWindowsSql($path, $version)
     }
     else
     {
-        Write-Host "downloading sqlsetup.exe was skipped"
+        Write-Host "downloading sqlsetup.exe was skipped" | Write-Output
     }
 
     if (!(Test-Path(".\sqlsetup.box")))
     {
-        Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
+        Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box | Write-Output
     }
     else
     {
         Write-Host "downloading sqlsetup.box was skipped"
     }
+
+    Write-Output "downloading complete"
 }
 
 if ("sqlengine" -in $Install) {

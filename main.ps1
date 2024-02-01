@@ -17,8 +17,7 @@ function DownloadWindowsSql($path, $version)
     }
 
     Push-Location $path
-
-    $ProgressPreference = "SilentlyContinue"
+    $ProgressPreference = 'Continue'
 
     switch ($version) {
         "2017" {
@@ -37,16 +36,18 @@ function DownloadWindowsSql($path, $version)
 
     if (!(Test-Path(".\sqlsetup.exe")))
     {
+        Write-Host "`ndownloading sqlsetup.exe"
         Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
     }
     else
     {
-        Write-Host "downloading sqlsetup.exe was skipped" | Write-Output
+        Write-Host "downloading sqlsetup.exe was skipped"
     }
 
     if (!(Test-Path(".\sqlsetup.box")))
     {
-        Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box | Write-Output
+        Write-Host "`ndownloading sqlsetup.box"
+        Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
     }
     else
     {

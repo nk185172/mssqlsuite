@@ -33,7 +33,8 @@ function DownloadWindowsSql($path, $version)
 
     if (!(Test-Path(".\sqlsetup.exe")))
     {
-        Measure-Command {  Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe }
+        Write-Host "`ndownloading sqlsetup.exe"
+        Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
     }
     else
     {
@@ -42,7 +43,8 @@ function DownloadWindowsSql($path, $version)
 
     if (!(Test-Path(".\sqlsetup.box")))
     {
-        Measure-Command { Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box }
+        Write-Host "`ndownloading sqlsetup.box"
+        Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
     }
     else
     {

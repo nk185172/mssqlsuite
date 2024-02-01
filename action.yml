@@ -58,7 +58,7 @@ runs:
         SA_PASSWORD: ${{ inputs.sa-password }}
         MSSQL_AGENT_ENABLED: "true"
       run: |
-        Write-Output "Getting variables for suite"
+        Write-Output "install"
 
         $params = @{
             Install         = ("${{ inputs.install }}" -split ",").Trim()
@@ -82,7 +82,7 @@ runs:
         SA_PASSWORD: ${{ inputs.sa-password }}
         MSSQL_AGENT_ENABLED: "true"
       run: |
-        Write-Output "Getting variables for suite"
+        Write-Output "Retry install"
 
         $params = @{
             Install         = ("${{ inputs.install }}" -split ",").Trim()

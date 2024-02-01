@@ -2,7 +2,7 @@ param (
     [ValidateSet("sqlclient", "sqlpackage", "sqlengine", "localdb")]
     [string[]]$Install,
     [string]$SaPassword,
-    [bool]$ShowLog,
+    [string]$ShowLog,
     [string]$Collation = "SQL_Latin1_General_CP1_CI_AS",
     [ValidateSet("2022","2019", "2017")]
     [string]$Version = "2019",
@@ -66,7 +66,7 @@ if ("sqlengine" -in $Install) {
         docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$SaPassword" -e "MSSQL_COLLATION=$Collation" --name sql -p 1433:1433 --memory="2g" -d "mcr.microsoft.com/mssql/server:$Version-latest"
         Write-Output "Docker finished running"
         Start-Sleep 5
-        if ($ShowLog) {
+        if ($ShowLog -eq 'true') {
             docker ps -a
             docker logs -t sql
         }
@@ -80,7 +80,7 @@ if ("sqlengine" -in $Install) {
         Write-Output "Waiting for docker to start"
         Start-Sleep -Seconds 10
 
-        if ($ShowLog) {
+        if ($ShowLog -eq 'true') {
             docker ps -a
             docker logs -t sql
         }
@@ -127,7 +127,7 @@ if ("sqlclient" -in $Install) {
         #$null = brew update
         $log = brew install microsoft/mssql-release/msodbcsql17 microsoft/mssql-release/mssql-tools
 
-        if ($ShowLog) {
+        if ($ShowLog -eq 'true') {
             $log
         }
     }
@@ -143,7 +143,7 @@ if ("sqlpackage" -in $Install) {
         $log = unzip /tmp/sqlpackage.zip -d $HOME/sqlpackage
         chmod +x $HOME/sqlpackage/sqlpackage
         sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
-        if ($ShowLog) {
+        if ($ShowLog -eq 'true') {
             $log
             sqlpackage /version
         }
@@ -154,7 +154,7 @@ if ("sqlpackage" -in $Install) {
         $log = unzip /tmp/sqlpackage.zip -d $HOME/sqlpackage
         chmod +x $HOME/sqlpackage/sqlpackage
         sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
-        if ($ShowLog) {
+        if ($ShowLog -eq 'true') {
             $log
             sqlpackage /version
         }
@@ -162,7 +162,7 @@ if ("sqlpackage" -in $Install) {
 
     if ($iswindows) {
         $log = choco install sqlpackage
-        if ($ShowLog) {
+        if ($ShowLog -eq 'true') {
             $log
             sqlpackage /version
         }

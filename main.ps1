@@ -42,6 +42,7 @@ if ("sqlengine" -in $Install) {
 
     if ($iswindows) {
 
+        Push-Location $path
         . $PSScriptRoot\download.ps1 -Path $Path -Version $Version
 
         switch ($Version) {

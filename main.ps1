@@ -4,58 +4,10 @@ param (
     [string]$SaPassword,
     [string]$ShowLog,
     [string]$Collation = "SQL_Latin1_General_CP1_CI_AS",
-    [ValidateSet("2022","2019", "2017")]
+    [ValidateSet("2022", "2019", "2017")]
     [string]$Version = "2019",
     [string]$Path = 'C:\temp'
 )
-function DownloadWindowsSql($path, $version)
-{
-    Write-Output "downloading windows sql server"
-
-    if (-not (Test-Path $path)) {
-        mkdir $path
-    }
-
-    Push-Location $path
-    $ProgressPreference = 'Continue'
-
-    switch ($version) {
-        "2017" {
-            $exeUri = "https://download.microsoft.com/download/E/F/2/EF23C21D-7860-4F05-88CE-39AA114B014B/SQLServer2017-DEV-x64-ENU.exe"
-            $boxUri = "https://download.microsoft.com/download/E/F/2/EF23C21D-7860-4F05-88CE-39AA114B014B/SQLServer2017-DEV-x64-ENU.box"
-        }
-        "2019" {
-            $exeUri = "https://download.microsoft.com/download/7/c/1/7c14e92e-bdcb-4f89-b7cf-93543e7112d1/SQLServer2019-DEV-x64-ENU.exe"
-            $boxUri = "https://download.microsoft.com/download/7/c/1/7c14e92e-bdcb-4f89-b7cf-93543e7112d1/SQLServer2019-DEV-x64-ENU.box"
-        }
-        "2022" {
-            $exeUri = "https://download.microsoft.com/download/3/8/d/38de7036-2433-4207-8eae-06e247e17b25/SQLServer2022-DEV-x64-ENU.exe"
-            $boxUri = "https://download.microsoft.com/download/3/8/d/38de7036-2433-4207-8eae-06e247e17b25/SQLServer2022-DEV-x64-ENU.box"
-        }
-    }
-
-    if (!(Test-Path(".\sqlsetup.exe")))
-    {
-        Write-Host "`ndownloading sqlsetup.exe"
-        Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
-    }
-    else
-    {
-        Write-Host "downloading sqlsetup.exe was skipped"
-    }
-
-    if (!(Test-Path(".\sqlsetup.box")))
-    {
-        Write-Host "`ndownloading sqlsetup.box"
-        Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
-    }
-    else
-    {
-        Write-Host "downloading sqlsetup.box was skipped"
-    }
-
-    Write-Output "downloading complete"
-}
 
 if ("sqlengine" -in $Install) {
     Write-Output "Installing SQL Engine"
@@ -90,7 +42,7 @@ if ("sqlengine" -in $Install) {
 
     if ($iswindows) {
 
-        DownloadWindowsSql $Path $Version
+        . $PSScriptRoot\download.ps1 -Path $Path -Version $Version
 
         switch ($Version) {
             "2017" {
@@ -109,7 +61,7 @@ if ("sqlengine" -in $Install) {
 
         Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
 
-        .\setup\setup.exe /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES=SQLENGINE,FULLTEXT /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
+        .\setup\setup.exe /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES=SQLENGINE, FULLTEXT /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
 
         Set-ItemProperty -path "HKLM:\Software\Microsoft\Microsoft SQL Server\MSSQL$versionMajor.MSSQLSERVER\MSSQLSERVER\" -Name LoginMode -Value 2
         Restart-Service MSSQLSERVER

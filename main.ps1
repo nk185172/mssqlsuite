@@ -42,8 +42,9 @@ function Install-SqlEngine {
         brew install docker
         colima start --runtime docker
         docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$SaPassword" -e "MSSQL_COLLATION=$Collation" --name sql -p 1433:1433 --memory="2g" -d "mcr.microsoft.com/mssql/server:$Version-latest"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to start SQL Server container (exit code $LASTEXITCODE)" }
         Write-Output "Docker container started"
-        Start-Sleep 5
+        Wait-SqlServer
         if ($ShowLog -eq 'true') { Write-DockerLog }
         Write-Output "SQL Engine installed at localhost"
     }
@@ -51,8 +52,8 @@ function Install-SqlEngine {
     if ($islinux) {
         Write-Output "Linux detected, pulling SQL Server docker container"
         docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$SaPassword" -e "MSSQL_COLLATION=$Collation" --name sql -p 1433:1433 -d "mcr.microsoft.com/mssql/server:$Version-latest"
-        Write-Output "Waiting for SQL Server to start"
-        Start-Sleep -Seconds 10
+        if ($LASTEXITCODE -ne 0) { throw "Failed to start SQL Server container (exit code $LASTEXITCODE)" }
+        Wait-SqlServer
         if ($ShowLog -eq 'true') { Write-DockerLog }
         Write-Output "SQL Server container running at localhost"
     }
@@ -67,24 +68,27 @@ function Install-SqlEngine {
         $versionMajor   = $versionConfig[$Version].Major
 
         Push-Location $Path
-        . $PSScriptRoot\download.ps1 -Path $Path -Version $Version
+        try {
+            . $PSScriptRoot\download.ps1 -Path $Path -Version $Version
 
-        Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
-        $setup = Get-Item -Path .\setup\setup.exe -ErrorAction Ignore
-        Write-Output "SQL Server setup path: $setup"
+            Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
+            $setup = Get-Item -Path .\setup\setup.exe -ErrorAction Ignore
+            Write-Output "SQL Server setup path: $setup"
 
-        if ($null -ne $setup) {
-            . $setup /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
+            if ($null -ne $setup) {
+                . $setup /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
 
-            Set-ItemProperty -path "HKLM:\Software\Microsoft\Microsoft SQL Server\MSSQL$versionMajor.MSSQLSERVER\MSSQLSERVER\" -Name LoginMode -Value 2
-            Restart-Service MSSQLSERVER
-            sqlcmd -S localhost -q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"
-            sqlcmd -S localhost -q "ALTER LOGIN [sa] ENABLE"
+                Set-ItemProperty -path "HKLM:\Software\Microsoft\Microsoft SQL Server\MSSQL$versionMajor.MSSQLSERVER\MSSQLSERVER\" -Name LoginMode -Value 2
+                Restart-Service MSSQLSERVER
+                sqlcmd -S localhost -q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"
+                sqlcmd -S localhost -q "ALTER LOGIN [sa] ENABLE"
+
+                Write-Output "SQL Server $Version installed at localhost (Windows and SQL auth enabled)"
+            } else {
+                throw "setup.exe not found"
+            }
+        } finally {
             Pop-Location
-
-            Write-Output "SQL Server $Version installed at localhost (Windows and SQL auth enabled)"
-        } else {
-            Write-Error "setup.exe not found"
         }
     }
 }
@@ -95,6 +99,7 @@ function Install-SqlClient {
         brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
         #$null = brew update
         $log = brew install microsoft/mssql-release/msodbcsql17 microsoft/mssql-release/mssql-tools
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install sqlclient tools (exit code $LASTEXITCODE)" }
         if ($ShowLog -eq 'true') { $log }
     }
     Write-Output "sqlclient tools installed"
@@ -106,7 +111,9 @@ function Install-SqlPackage {
     if ($ismacos -or $islinux) {
         $url = if ($ismacos) { "https://aka.ms/sqlpackage-macos" } else { "https://aka.ms/sqlpackage-linux" }
         curl $url -4 -sL -o '/tmp/sqlpackage.zip'
+        if ($LASTEXITCODE -ne 0) { throw "Failed to download sqlpackage from $url (exit code $LASTEXITCODE)" }
         $log = unzip /tmp/sqlpackage.zip -d $HOME/sqlpackage
+        if ($LASTEXITCODE -ne 0) { throw "Failed to extract sqlpackage (exit code $LASTEXITCODE)" }
         chmod +x $HOME/sqlpackage/sqlpackage
         sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
         if ($ShowLog -eq 'true') {
@@ -144,9 +151,10 @@ function Install-LocalDb {
 
     Write-Host "Downloading SqlLocalDB"
     $ProgressPreference = "SilentlyContinue"
-    Invoke-WebRequest -Uri $msiUrls[$Version] -OutFile SqlLocalDB.msi
+    Invoke-WebRequest -Uri $msiUrls[$Version] -OutFile SqlLocalDB.msi -ErrorAction Stop
     Write-Host "Installing SqlLocalDB"
-    Start-Process -FilePath "SqlLocalDB.msi" -Wait -ArgumentList "/qn", "/norestart", "/l*v SqlLocalDBInstall.log", "IACCEPTSQLLOCALDBLICENSETERMS=YES"
+    $msiProc = Start-Process -FilePath "SqlLocalDB.msi" -Wait -PassThru -ArgumentList "/qn", "/norestart", "/l*v SqlLocalDBInstall.log", "IACCEPTSQLLOCALDBLICENSETERMS=YES"
+    if ($msiProc.ExitCode -ne 0) { throw "SqlLocalDB installation failed with exit code $($msiProc.ExitCode)" }
     Write-Host "Verifying installation"
     sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "SELECT @@VERSION;"
     sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"

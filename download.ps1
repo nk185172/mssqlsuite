@@ -86,11 +86,11 @@ function Invoke-DownloadWithRetry {
     return $Path
 }
 
-function DownloadWindowsSql($path, $version) {
+function Invoke-DownloadWindowsSql($path, $version) {
     Write-Output "downloading windows sql server"
 
     if (-not (Test-Path $path)) {
-        mkdir $path
+        New-Item -ItemType Directory -Path $path | Out-Null
     }
 
     $ProgressPreference = 'Continue'
@@ -128,7 +128,7 @@ function DownloadWindowsSql($path, $version) {
 }
 
 try {
-    DownloadWindowsSql $path $version
+    Invoke-DownloadWindowsSql $path $version
 } catch {
     Write-Error "Error: $($_.Exception.Message)" -ErrorAction Stop
 }

@@ -57,7 +57,8 @@ function Invoke-DownloadWithRetry {
     for ($retries = 20; $retries -gt 0; $retries--) {
         try {
             $attemptStartTime = Get-Date
-            (New-Object System.Net.WebClient).DownloadFile($Url, $Path)
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $Url -OutFile $Path -UseBasicParsing
             $attemptSeconds = [math]::Round(($(Get-Date) - $attemptStartTime).TotalSeconds, 2)
             Write-Host "Package downloaded in $attemptSeconds seconds"
 
@@ -68,13 +69,16 @@ function Invoke-DownloadWithRetry {
             Write-Warning "Package download failed in $attemptSeconds seconds"
             Write-Warning $_.Exception.Message
 
-            if ($_.Exception.InnerException.Response.StatusCode -eq [System.Net.HttpStatusCode]::NotFound) {
+            if ($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::NotFound) {
                 Write-Warning "Request returned 404 Not Found. Aborting download."
                 $retries = 0
             }
         }
 
-        if ($retries -eq 0) {
+        # NOTE: this check must use -le 1, not -eq 0. The for-loop decrement runs
+        # *after* this block, so when $retries is 1 the loop will exit silently on
+        # the next iteration without ever reaching this check again.
+        if ($retries -le 1) {
             $totalSeconds = [math]::Round(($(Get-Date) - $downloadStartTime).TotalSeconds, 2)
             throw "Package download failed after $totalSeconds seconds"
         }
@@ -113,30 +117,27 @@ function Invoke-DownloadWindowsSql($path, $version) {
         @{ Url = $downloadUris[$version].Box; Dest = "$path\sqlsetup.box" }
     )
 
-    # Capture the retry function's source so it can be reconstructed inside each job.
-    $funcDef = ${function:Invoke-DownloadWithRetry}.ToString()
-
-    $jobs = foreach ($file in $filesToDownload) {
+    # Start-BitsTransfer is the Windows-native way to do parallel, resumable downloads.
+    # No function serialization or job cleanup required.
+    $bitsJobs = foreach ($file in $filesToDownload) {
         if (Test-Path $file.Dest) {
             Write-Host "Skipping, already exists: $($file.Dest)"
             continue
         }
         Write-Host "Queuing download: $($file.Dest)"
-        Start-Job -ScriptBlock {
-            param($funcDef, $url, $dest)
-            New-Item -Path Function:\Invoke-DownloadWithRetry -Value $funcDef | Out-Null
-            Invoke-DownloadWithRetry -Url $url -Path $dest
-        } -ArgumentList $funcDef, $file.Url, $file.Dest
+        Start-BitsTransfer -Source $file.Url -Destination $file.Dest -Asynchronous -DisplayName (Split-Path $file.Dest -Leaf)
     }
 
-    if ($jobs) {
-        Write-Host "Downloading $(@($jobs).Count) file(s) in parallel..."
-        $jobs | Wait-Job | Receive-Job
-        $failed = @($jobs | Where-Object { $_.State -eq 'Failed' })
-        $jobs | Remove-Job -Force
+    if ($bitsJobs) {
+        Write-Host "Downloading $(@($bitsJobs).Count) file(s) in parallel..."
+        $bitsJobs | Wait-BitsTransfer
+        $failed = @($bitsJobs | Where-Object { $_.JobState -eq 'Error' })
         if ($failed.Count -gt 0) {
+            $failed | ForEach-Object { Write-Warning "BITS transfer failed: $($_.ErrorDescription)" }
+            $bitsJobs | Remove-BitsTransfer
             throw "One or more file downloads failed"
         }
+        $bitsJobs | Complete-BitsTransfer
     }
 
     Write-Output "downloading complete"

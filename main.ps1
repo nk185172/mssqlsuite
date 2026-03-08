@@ -34,6 +34,7 @@ function Wait-SqlServer {
 }
 
 function Install-SqlEngine {
+    $ErrorActionPreference = 'Stop'
     Write-Output "Installing SQL Engine"
 
     if ($ismacos) {
@@ -76,10 +77,12 @@ function Install-SqlEngine {
             Write-Output "SQL Server setup path: $setup"
 
             if ($null -ne $setup) {
-                . $setup /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
+                # & is the correct call operator for executables; . is for PS scripts only.
+                & $setup /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
 
                 Set-ItemProperty -path "HKLM:\Software\Microsoft\Microsoft SQL Server\MSSQL$versionMajor.MSSQLSERVER\MSSQLSERVER\" -Name LoginMode -Value 2
                 Restart-Service MSSQLSERVER
+                Wait-SqlServer
                 sqlcmd -S localhost -q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"
                 sqlcmd -S localhost -q "ALTER LOGIN [sa] ENABLE"
 
@@ -94,6 +97,7 @@ function Install-SqlEngine {
 }
 
 function Install-SqlClient {
+    $ErrorActionPreference = 'Stop'
     if ($ismacos) {
         Write-Output "Installing sqlclient tools"
         brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
@@ -106,6 +110,7 @@ function Install-SqlClient {
 }
 
 function Install-SqlPackage {
+    $ErrorActionPreference = 'Stop'
     Write-Output "Installing sqlpackage"
 
     if ($ismacos -or $islinux) {
@@ -123,7 +128,7 @@ function Install-SqlPackage {
     }
 
     if ($iswindows) {
-        $log = choco install sqlpackage
+        $log = choco install sqlpackage -y
         if ($ShowLog -eq 'true') {
             $log
             sqlpackage /version
@@ -134,6 +139,7 @@ function Install-SqlPackage {
 }
 
 function Install-LocalDb {
+    $ErrorActionPreference = 'Stop'
     if (-not $iswindows) {
         Write-Output "LocalDB can only be installed on Windows"
         return

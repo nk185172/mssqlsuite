@@ -1,4 +1,3 @@
-@ -1,143 +1,128 @@
 param (
     [string]$path = 'C:\temp\sql',
     [string]$version = "2019"
@@ -127,3 +126,10 @@ function Invoke-DownloadWindowsSql($path, $version) {
     }
 
     Write-Output "downloading complete"
+}
+
+try {
+    Invoke-DownloadWindowsSql $path $version
+} catch {
+    Write-Error "Error: $($_.Exception.Message)" -ErrorAction Stop
+}

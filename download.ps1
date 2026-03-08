@@ -1,3 +1,4 @@
+@ -1,143 +1,128 @@
 param (
     [string]$path = 'C:\temp\sql',
     [string]$version = "2019"
@@ -117,34 +118,12 @@ function Invoke-DownloadWindowsSql($path, $version) {
         @{ Url = $downloadUris[$version].Box; Dest = "$path\sqlsetup.box" }
     )
 
-    # Start-BitsTransfer is the Windows-native way to do parallel, resumable downloads.
-    # No function serialization or job cleanup required.
-    $bitsJobs = foreach ($file in $filesToDownload) {
+    foreach ($file in $filesToDownload) {
         if (Test-Path $file.Dest) {
             Write-Host "Skipping, already exists: $($file.Dest)"
             continue
         }
-        Write-Host "Queuing download: $($file.Dest)"
-        Start-BitsTransfer -Source $file.Url -Destination $file.Dest -Asynchronous -DisplayName (Split-Path $file.Dest -Leaf)
-    }
-
-    if ($bitsJobs) {
-        Write-Host "Downloading $(@($bitsJobs).Count) file(s) in parallel..."
-        $bitsJobs | Wait-BitsTransfer
-        $failed = @($bitsJobs | Where-Object { $_.JobState -eq 'Error' })
-        if ($failed.Count -gt 0) {
-            $failed | ForEach-Object { Write-Warning "BITS transfer failed: $($_.ErrorDescription)" }
-            $bitsJobs | Remove-BitsTransfer
-            throw "One or more file downloads failed"
-        }
-        $bitsJobs | Complete-BitsTransfer
+        Invoke-DownloadWithRetry -Url $file.Url -Path $file.Dest
     }
 
     Write-Output "downloading complete"
-}
-
-try {
-    Invoke-DownloadWindowsSql $path $version
-} catch {
-    Write-Error "Error: $($_.Exception.Message)" -ErrorAction Stop
-}

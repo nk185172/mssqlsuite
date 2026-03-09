@@ -1,97 +1,61 @@
-name: "mssql suite-v2"
+name: mssql suite-v2
 branding:
-  icon: "database"
-  color: "yellow"
-description: "Installs a SQL Server suite of tools including sqlcmd, bcp, sqlpackage, db engine and localdb for Windows, macOS and Linux."
+  icon: database
+  color: yellow
+description: >-
+  Installs a SQL Server suite of tools including sqlcmd, bcp, sqlpackage,
+  db engine and localdb for Windows, macOS and Linux.
 inputs:
   install:
-    description: "The apps to install"
-    required: true
-    default: "sqlengine"
+    description: "Comma-separated list of tools to install: sqlengine, sqlclient, sqlpackage, localdb"
+    default: sqlengine
   sa-password:
-    description: "The sa password for the SQL instance"
-    required: false
-    default: "Qwe12345"
+    description: SA password for the SQL Server instance
+    default: Qwe12345
   show-log:
-    description: "Show the log file for the docker container"
-    required: false
+    description: "Show Docker/brew logs for troubleshooting (true | false)"
     default: "false"
   collation:
-    description: "Change the collation associated with the SQL Server instance"
-    required: false
-    default: "Latin1_General_CI_AS_KS"
+    description: SQL Server collation
+    default: SQL_Latin1_General_CP1_CI_AS
   version:
-    description: "The version of SQL Server to install in year format"
-    required: false
+    description: "SQL Server version to install: 2017, 2019, or 2022"
     default: "2019"
   download-path:
-    description: "The path of SQL Server to download in local env"
-    required: false
-    default: "C:/temp"
+    description: Local path for downloaded SQL Server installer files (defaults to runner temp directory)
+    default: ""
   download-only:
-    description: "Set this to true for only downloading"
-    required: false
-    default: 'false'
+    description: "Download installers without installing — Windows only (true | false)"
+    default: "false"
 runs:
-  using: "composite"
+  using: composite
   steps:
-    - name: download windows installers
+    - name: Download Windows installers
       if: ${{ inputs.download-only == 'true' }}
       shell: pwsh
-      run: |
-        $params = @{
-            path    = "${{ inputs.download-path }}"
-            version = "${{ inputs.version }}"
-        }
-
-        .\download.ps1 @params
       working-directory: ${{ github.action_path }}
+      env:
+        MSSQL_VERSION: ${{ inputs.version }}
+        MSSQL_DOWNLOAD_PATH: ${{ inputs.download-path }}
+      run: |
+        $path = if ($env:MSSQL_DOWNLOAD_PATH) { $env:MSSQL_DOWNLOAD_PATH } else { $env:RUNNER_TEMP }
+        ./download.ps1 -Path $path -Version $env:MSSQL_VERSION
 
-    - id: psoutput
+    - name: Install SQL Server tools
       if: ${{ inputs.download-only != 'true' }}
-      continue-on-error: true
       shell: pwsh
+      working-directory: ${{ github.action_path }}
       env:
         ACCEPT_EULA: "Y"
         HOMEBREW_ACCEPT_EULA: "Y"
-        HOMEBREW_NO_INSTALL_CLEANUP: "Y"
-        SA_PASSWORD: ${{ inputs.sa-password }}
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
         MSSQL_AGENT_ENABLED: "true"
-      run: |
-        Write-Output "install"
-
-        $params = @{
-            Install         = ("${{ inputs.install }}" -split ",").Trim()
-            SaPassword      = "${{ inputs.sa-password }}"
-            ShowLog         = ${{ inputs.show-log }}
-            Collation       = "${{ inputs.Collation }}"
-            Version         = "${{ inputs.Version }}"
-            Path            = "${{ inputs.download-path }}"
-        }
-
-        .\main.ps1 @params
-      working-directory: ${{ github.action_path }}
-
-    - name: retry psoutput
-      if: ${{ inputs.download-only != 'true' && steps.psoutput.outcome != 'success' }}
-      shell: pwsh
-      env:
-        ACCEPT_EULA: "Y"
-        HOMEBREW_ACCEPT_EULA: "Y"
-        HOMEBREW_NO_INSTALL_CLEANUP: "Y"
         SA_PASSWORD: ${{ inputs.sa-password }}
-        MSSQL_AGENT_ENABLED: "true"
-      run: |
-        Write-Output "Retry install"
+        MSSQL_INSTALL: ${{ inputs.install }}
+        MSSQL_SHOW_LOG: ${{ inputs.show-log }}
+        MSSQL_COLLATION: ${{ inputs.collation }}
+        MSSQL_VERSION: ${{ inputs.version }}
+        MSSQL_DOWNLOAD_PATH: ${{ inputs.download-path }}
+      run: ./main.ps1
 
-        $params = @{
-            Install         = ("${{ inputs.install }}" -split ",").Trim()
-            SaPassword      = "${{ inputs.sa-password }}"
-            ShowLog         = ${{ inputs.show-log }}
-            Collation       = "${{ inputs.Collation }}"
-            Version         = "${{ inputs.Version }}"
-            Path            = "${{ inputs.download-path }}"
-        }
-
-        .\main.ps1 @params
-      working-directory: ${{ github.action_path }}

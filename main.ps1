@@ -1,17 +1,42 @@
 param (
     [ValidateSet("sqlclient", "sqlpackage", "sqlengine", "localdb")]
-    [string[]]$Install,
-    [string]$SaPassword,
-    [string]$ShowLog,
-    [string]$Collation = "SQL_Latin1_General_CP1_CI_AS",
+    [string[]]$Install  = $(if ($env:MSSQL_INSTALL) { ($env:MSSQL_INSTALL -split ',').Trim() | Where-Object { $_ } } else { @('sqlengine') }),
+    [string]$SaPassword = ($env:SA_PASSWORD   ?? ''),
+    [string]$ShowLog    = ($env:MSSQL_SHOW_LOG ?? 'false'),
+    [string]$Collation  = ($env:MSSQL_COLLATION ?? 'SQL_Latin1_General_CP1_CI_AS'),
     [ValidateSet("2022", "2019", "2017")]
-    [string]$Version = "2019",
-    [string]$Path = 'C:\temp'
+    [string]$Version    = ($env:MSSQL_VERSION  ?? '2019'),
+    [string]$Path       = (@($env:MSSQL_DOWNLOAD_PATH, $env:RUNNER_TEMP, (Join-Path ([System.IO.Path]::GetTempPath()) 'mssql')) | Where-Object { $_ } | Select-Object -First 1)
 )
+
+# Mask the SA password immediately so it never appears in plain text in logs.
+if ($SaPassword) { Write-Output "::add-mask::$SaPassword" }
+
+# Convert once here so every function uses a clean bool rather than string comparisons.
+$showLog = $ShowLog -eq 'true'
 
 function Write-DockerLog {
     docker ps -a
     docker logs -t sql
+}
+
+# Runs the SQL Server docker container, waits for it to be ready, and optionally prints logs.
+# ExtraArgs allows platform-specific flags (e.g. --memory=2g on macOS).
+function Start-DockerSqlContainer {
+    param([string[]]$ExtraArgs = @())
+    $dockerArgs = @(
+        'run',
+        '-e', "ACCEPT_EULA=Y",
+        '-e', "SA_PASSWORD=$SaPassword",
+        '-e', "MSSQL_COLLATION=$Collation",
+        '--name', 'sql',
+        '-p', '1433:1433'
+    ) + $ExtraArgs + @('-d', "mcr.microsoft.com/mssql/server:$Version-latest")
+
+    docker @dockerArgs
+    if ($LASTEXITCODE -ne 0) { throw "Failed to start SQL Server container (exit code $LASTEXITCODE)" }
+    Wait-SqlServer
+    if ($showLog) { Write-DockerLog }
 }
 
 # Polls TCP port 1433 until SQL Server accepts connections or times out.
@@ -39,23 +64,15 @@ function Install-SqlEngine {
 
     if ($ismacos) {
         Write-Output "macOS detected, installing Docker then pulling SQL Server container"
-        $Env:HOMEBREW_NO_AUTO_UPDATE = 1
         brew install docker
         colima start --runtime docker
-        docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$SaPassword" -e "MSSQL_COLLATION=$Collation" --name sql -p 1433:1433 --memory="2g" -d "mcr.microsoft.com/mssql/server:$Version-latest"
-        if ($LASTEXITCODE -ne 0) { throw "Failed to start SQL Server container (exit code $LASTEXITCODE)" }
-        Write-Output "Docker container started"
-        Wait-SqlServer
-        if ($ShowLog -eq 'true') { Write-DockerLog }
+        Start-DockerSqlContainer -ExtraArgs '--memory=2g'
         Write-Output "SQL Engine installed at localhost"
     }
 
     if ($islinux) {
         Write-Output "Linux detected, pulling SQL Server docker container"
-        docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=$SaPassword" -e "MSSQL_COLLATION=$Collation" --name sql -p 1433:1433 -d "mcr.microsoft.com/mssql/server:$Version-latest"
-        if ($LASTEXITCODE -ne 0) { throw "Failed to start SQL Server container (exit code $LASTEXITCODE)" }
-        Wait-SqlServer
-        if ($ShowLog -eq 'true') { Write-DockerLog }
+        Start-DockerSqlContainer
         Write-Output "SQL Server container running at localhost"
     }
 
@@ -70,10 +87,10 @@ function Install-SqlEngine {
 
         Push-Location $Path
         try {
-            . $PSScriptRoot\download.ps1 -Path $Path -Version $Version
+            . (Join-Path $PSScriptRoot 'download.ps1') -Path $Path -Version $Version
 
-            Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
-            $setup = Get-Item -Path .\setup\setup.exe -ErrorAction Ignore
+            Start-Process -Wait -FilePath (Join-Path $Path 'sqlsetup.exe') -ArgumentList /qs, /x:setup
+            $setup = Get-Item -Path (Join-Path $Path 'setup' 'setup.exe') -ErrorAction Ignore
             Write-Output "SQL Server setup path: $setup"
 
             if ($null -ne $setup) {
@@ -104,7 +121,7 @@ function Install-SqlClient {
         #$null = brew update
         $log = brew install microsoft/mssql-release/msodbcsql17 microsoft/mssql-release/mssql-tools
         if ($LASTEXITCODE -ne 0) { throw "Failed to install sqlclient tools (exit code $LASTEXITCODE)" }
-        if ($ShowLog -eq 'true') { $log }
+        if ($showLog) { $log }
     }
     Write-Output "sqlclient tools installed"
 }
@@ -121,7 +138,7 @@ function Install-SqlPackage {
         if ($LASTEXITCODE -ne 0) { throw "Failed to extract sqlpackage (exit code $LASTEXITCODE)" }
         chmod +x $HOME/sqlpackage/sqlpackage
         sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
-        if ($ShowLog -eq 'true') {
+        if ($showLog) {
             $log
             sqlpackage /version
         }
@@ -129,7 +146,7 @@ function Install-SqlPackage {
 
     if ($iswindows) {
         $log = choco install sqlpackage -y
-        if ($ShowLog -eq 'true') {
+        if ($showLog) {
             $log
             sqlpackage /version
         }
@@ -150,25 +167,38 @@ function Install-LocalDb {
         return
     }
 
-    $msiUrls = @{
-        "2017" = "https://download.microsoft.com/download/E/F/2/EF23C21D-7860-4F05-88CE-39AA114B014B/SqlLocalDB.msi"
-        "2019" = "https://download.microsoft.com/download/7/c/1/7c14e92e-bdcb-4f89-b7cf-93543e7112d1/SqlLocalDB.msi"
+    # The windows-latest runner ships with SqlLocalDB pre-installed.
+    # Only install via Chocolatey if it is not already present.
+    $localDbExe = Get-Command SqlLocalDB -ErrorAction Ignore
+    if ($null -eq $localDbExe) {
+        Write-Output "SqlLocalDB not found, installing via Chocolatey"
+        choco install sqllocaldb -y
+        if ($LASTEXITCODE -ne 0) { throw "SqlLocalDB installation failed (exit code $LASTEXITCODE)" }
+    } else {
+        Write-Output "SqlLocalDB already present at $($localDbExe.Source)"
     }
 
-    Write-Host "Downloading SqlLocalDB"
-    $ProgressPreference = "SilentlyContinue"
-    Invoke-WebRequest -Uri $msiUrls[$Version] -OutFile SqlLocalDB.msi -ErrorAction Stop
-    Write-Host "Installing SqlLocalDB"
-    $msiProc = Start-Process -FilePath "SqlLocalDB.msi" -Wait -PassThru -ArgumentList "/qn", "/norestart", "/l*v SqlLocalDBInstall.log", "IACCEPTSQLLOCALDBLICENSETERMS=YES"
-    if ($msiProc.ExitCode -ne 0) { throw "SqlLocalDB installation failed with exit code $($msiProc.ExitCode)" }
-    Write-Host "Verifying installation"
+    Write-Output "Verifying installation"
     sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "SELECT @@VERSION;"
+    if ($LASTEXITCODE -ne 0) { throw "SqlLocalDB verification failed (exit code $LASTEXITCODE)" }
     sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"
     sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "ALTER LOGIN [sa] ENABLE"
-    Write-Host "SqlLocalDB $Version installed at (localdb)\MSSQLLocalDB"
+    Write-Output "SqlLocalDB installed and accessible at (localdb)\MSSQLLocalDB"
 }
 
-if ("sqlengine" -in $Install) { Install-SqlEngine }
-if ("sqlclient" -in $Install) { Install-SqlClient }
-if ("sqlpackage" -in $Install) { Install-SqlPackage }
-if ("localdb"   -in $Install) { Install-LocalDb }
+$maxAttempts = 2
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    try {
+        if ("sqlengine" -in $Install) { Install-SqlEngine }
+        if ("sqlclient" -in $Install) { Install-SqlClient }
+        if ("sqlpackage" -in $Install) { Install-SqlPackage }
+        if ("localdb"   -in $Install) { Install-LocalDb }
+        break
+    } catch {
+        if ($attempt -lt $maxAttempts) {
+            Write-Warning "Attempt $attempt failed: $($_.Exception.Message). Retrying..."
+        } else {
+            throw
+        }
+    }
+}

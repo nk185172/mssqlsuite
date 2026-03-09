@@ -1,5 +1,5 @@
 param (
-    [string]$path = 'C:\temp\sql',
+    [string]$path = (Join-Path ([System.IO.Path]::GetTempPath()) 'mssql'),
     [string]$version = "2019"
 )
 
@@ -47,17 +47,18 @@ function Invoke-DownloadWithRetry {
         if ([String]::IsNullOrEmpty($fileName)) {
             $fileName = [System.IO.Path]::GetRandomFileName()
         }
-        $Path = Join-Path -Path "${env:TEMP_DIR}" -ChildPath $fileName
+        $tempDir = $env:RUNNER_TEMP ?? [System.IO.Path]::GetTempPath()
+        $Path = Join-Path -Path $tempDir -ChildPath $fileName
     }
 
     Write-Host "Downloading package from $Url to $Path..."
 
     $interval = 30
     $downloadStartTime = Get-Date
+    $ProgressPreference = 'SilentlyContinue'
     for ($retries = 20; $retries -gt 0; $retries--) {
         try {
             $attemptStartTime = Get-Date
-            $ProgressPreference = 'SilentlyContinue'
             Invoke-WebRequest -Uri $Url -OutFile $Path -UseBasicParsing
             $attemptSeconds = [math]::Round(($(Get-Date) - $attemptStartTime).TotalSeconds, 2)
             Write-Host "Package downloaded in $attemptSeconds seconds"
@@ -90,11 +91,15 @@ function Invoke-DownloadWithRetry {
     return $Path
 }
 
-function Invoke-DownloadWindowsSql($path, $version) {
-    Write-Output "downloading windows sql server"
+function Invoke-DownloadWindowsSql {
+    param(
+        [string]$Path,
+        [string]$Version
+    )
+    Write-Output "Downloading Windows SQL Server"
 
-    if (-not (Test-Path $path)) {
-        New-Item -ItemType Directory -Path $path | Out-Null
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path | Out-Null
     }
 
     $downloadUris = @{
@@ -113,8 +118,8 @@ function Invoke-DownloadWindowsSql($path, $version) {
     }
 
     $filesToDownload = @(
-        @{ Url = $downloadUris[$version].Exe; Dest = "$path\sqlsetup.exe" }
-        @{ Url = $downloadUris[$version].Box; Dest = "$path\sqlsetup.box" }
+        @{ Url = $downloadUris[$Version].Exe; Dest = (Join-Path $Path 'sqlsetup.exe') }
+        @{ Url = $downloadUris[$Version].Box; Dest = (Join-Path $Path 'sqlsetup.box') }
     )
 
     foreach ($file in $filesToDownload) {
@@ -125,11 +130,11 @@ function Invoke-DownloadWindowsSql($path, $version) {
         Invoke-DownloadWithRetry -Url $file.Url -Path $file.Dest
     }
 
-    Write-Output "downloading complete"
+    Write-Output "Download complete"
 }
 
 try {
-    Invoke-DownloadWindowsSql $path $version
+    Invoke-DownloadWindowsSql -Path $path -Version $version
 } catch {
     Write-Error "Error: $($_.Exception.Message)" -ErrorAction Stop
 }

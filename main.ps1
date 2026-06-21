@@ -81,6 +81,25 @@ function Install-SqlEngine {
 
     if ($islinux) {
         Write-Output "Linux detected, pulling SQL Server docker container"
+        $imageName = "mcr.microsoft.com/mssql/server:$Version-latest"
+        $cacheFile = Join-Path $Path "mssql-docker-$Version.tar"
+
+        # Load cached Docker image if available; otherwise pull from registry
+        if (Test-Path $cacheFile) {
+            Write-Output "Loading Docker image from cache..."
+            docker load -i $cacheFile
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Cache load failed, pulling fresh image"
+                docker pull $imageName
+            }
+        } else {
+            docker pull $imageName
+            if ($LASTEXITCODE -eq 0) {
+                Write-Output "Saving Docker image to cache..."
+                docker save -o $cacheFile $imageName
+            }
+        }
+
         Start-DockerSqlContainer
         Write-Output "SQL Server container running at localhost"
     }
@@ -184,11 +203,21 @@ function Install-SqlPackage {
     }
 
     if ($iswindows) {
-        $log = choco install sqlpackage -y
-        if ($showLog) {
-            $log
-            sqlpackage /version
+        $sqlpackageDir = Join-Path $env:ProgramFiles 'sqlpackage'
+        if (Test-Path (Join-Path $sqlpackageDir 'sqlpackage.exe')) {
+            Write-Output "sqlpackage found in cache"
+        } else {
+            $zipPath = Join-Path $env:TEMP 'sqlpackage-win.zip'
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri 'https://aka.ms/sqlpackage-windows' -OutFile $zipPath -UseBasicParsing
+            if (-not (Test-Path $zipPath)) { throw "Failed to download sqlpackage" }
+            Expand-Archive -Path $zipPath -DestinationPath $sqlpackageDir -Force
+            Remove-Item $zipPath -ErrorAction Ignore
         }
+        # Add to PATH for the current step and subsequent steps
+        if ($env:GITHUB_PATH) { Add-Content -Path $env:GITHUB_PATH -Value $sqlpackageDir }
+        $env:PATH = "$sqlpackageDir;$env:PATH"
+        if ($showLog) { & (Join-Path $sqlpackageDir 'sqlpackage.exe') /version }
     }
 
     Write-Output "sqlpackage installed"
@@ -274,8 +303,16 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
                             if ($showLog) { $log; sqlpackage /version }
                         }
                         if ($iswindows) {
-                            $log = choco install sqlpackage -y
-                            if ($showLog) { $log; sqlpackage /version }
+                            $sqlpackageDir = Join-Path $env:ProgramFiles 'sqlpackage'
+                            if (-not (Test-Path (Join-Path $sqlpackageDir 'sqlpackage.exe'))) {
+                                $zipPath = Join-Path $env:TEMP 'sqlpackage-win.zip'
+                                $ProgressPreference = 'SilentlyContinue'
+                                Invoke-WebRequest -Uri 'https://aka.ms/sqlpackage-windows' -OutFile $zipPath -UseBasicParsing
+                                if (-not (Test-Path $zipPath)) { throw "Failed to download sqlpackage" }
+                                [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $sqlpackageDir)
+                                Remove-Item $zipPath -ErrorAction Ignore
+                            }
+                            if ($showLog) { & (Join-Path $sqlpackageDir 'sqlpackage.exe') /version }
                         }
                         Write-Output "sqlpackage installed"
                     }

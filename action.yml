@@ -56,8 +56,8 @@ runs:
       if: ${{ runner.os == 'Windows' && contains(inputs.install, 'sqlpackage') }}
       uses: actions/cache@v4
       with:
-        path: ~\AppData\Local\Temp\chocolatey\sqlpackage
-        key: sqlpackage-choco-${{ runner.os }}
+        path: C:\Program Files\sqlpackage
+        key: sqlpackage-direct-${{ runner.os }}-v1
 
     - name: Cache sqlpackage (Linux/macOS)
       if: ${{ runner.os != 'Windows' && contains(inputs.install, 'sqlpackage') }}
@@ -65,6 +65,14 @@ runs:
       with:
         path: ~/sqlpackage
         key: sqlpackage-${{ runner.os }}
+
+    # --- Caching: Docker image (Linux) ---
+    - name: Cache Docker image
+      if: ${{ runner.os == 'Linux' && contains(inputs.install, 'sqlengine') }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.download-path || runner.temp }}/mssql-docker-${{ inputs.version }}.tar
+        key: mssql-docker-${{ inputs.version }}-${{ runner.os }}-v1
 
     # --- Caching: Homebrew (macOS) ---
     - name: Cache Homebrew packages

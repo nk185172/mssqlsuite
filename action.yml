@@ -35,8 +35,11 @@ runs:
       if: ${{ runner.os == 'Windows' && contains(inputs.install, 'sqlengine') }}
       uses: actions/cache@v4
       with:
-        path: ${{ inputs.download-path || runner.temp }}
-        key: mssql-installer-${{ inputs.version }}-${{ runner.os }}
+        path: |
+          ${{ inputs.download-path || runner.temp }}/sqlsetup.exe
+          ${{ inputs.download-path || runner.temp }}/sqlsetup.box
+          ${{ inputs.download-path || runner.temp }}/setup
+        key: mssql-installer-${{ inputs.version }}-${{ runner.os }}-v2
 
     # --- Caching: sqlpackage ---
     - name: Cache sqlpackage (Windows)

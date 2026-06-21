@@ -96,21 +96,27 @@ function Install-SqlEngine {
 
         Push-Location $Path
         try {
-            . (Join-Path $PSScriptRoot 'download.ps1') -Path $Path -Version $Version
+            $setupDir = Join-Path $Path 'setup'
+            $setup = Get-Item -Path (Join-Path $setupDir 'setup.exe') -ErrorAction Ignore
 
-            Start-Process -Wait -FilePath (Join-Path $Path 'sqlsetup.exe') -ArgumentList /qs, /x:setup
-            $setup = Get-Item -Path (Join-Path $Path 'setup' 'setup.exe') -ErrorAction Ignore
+            # Use cached extracted setup if available; otherwise download and extract
+            if ($null -eq $setup) {
+                . (Join-Path $PSScriptRoot 'download.ps1') -Path $Path -Version $Version
+                Start-Process -Wait -FilePath (Join-Path $Path 'sqlsetup.exe') -ArgumentList /qs, "/x:$setupDir"
+                $setup = Get-Item -Path (Join-Path $setupDir 'setup.exe') -ErrorAction Ignore
+            } else {
+                Write-Output "Using cached extracted setup at $setupDir"
+            }
             Write-Output "SQL Server setup path: $setup"
 
             if ($null -ne $setup) {
-                # & is the correct call operator for executables; . is for PS scripts only.
-                & $setup /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
+                # Pass /SECURITYMODE=SQL and /SAPWD during install to enable mixed auth
+                # immediately, avoiding a post-install service restart.
+                & $setup /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation /SECURITYMODE=SQL /SAPWD="$SaPassword" $installOptions
 
-                Set-ItemProperty -path "HKLM:\Software\Microsoft\Microsoft SQL Server\MSSQL$versionMajor.MSSQLSERVER\MSSQLSERVER\" -Name LoginMode -Value 2
-                Restart-Service MSSQLSERVER
                 Wait-SqlServer
-                sqlcmd -S localhost -q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"
-                sqlcmd -S localhost -q "ALTER LOGIN [sa] ENABLE"
+                # SA login is already enabled via /SECURITYMODE=SQL; just ensure it's active
+                sqlcmd -S localhost -U sa -P "$SaPassword" -Q "ALTER LOGIN [sa] ENABLE;"
 
                 Write-Output "SQL Server $Version installed at localhost (Windows and SQL auth enabled)"
             } else {

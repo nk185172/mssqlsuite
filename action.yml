@@ -39,7 +39,17 @@ runs:
           ${{ inputs.download-path || runner.temp }}/sqlsetup.exe
           ${{ inputs.download-path || runner.temp }}/sqlsetup.box
           ${{ inputs.download-path || runner.temp }}/setup
+          ${{ inputs.download-path || runner.temp }}/mssql-installed-${{ inputs.version }}.marker
         key: mssql-installer-${{ inputs.version }}-${{ runner.os }}-v2
+
+    # --- Caching: Installed SQL Server instance (Windows) ---
+    - name: Cache SQL Server instance
+      if: ${{ runner.os == 'Windows' && contains(inputs.install, 'sqlengine') }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:\Program Files\Microsoft SQL Server
+        key: mssql-instance-${{ inputs.version }}-${{ inputs.collation }}-${{ runner.os }}-v1
 
     # --- Caching: sqlpackage ---
     - name: Cache sqlpackage (Windows)

@@ -122,12 +122,49 @@ function Invoke-DownloadWindowsSql {
         @{ Url = $downloadUris[$Version].Box; Dest = (Join-Path $Path 'sqlsetup.box') }
     )
 
+    # Download files in parallel for faster setup
+    $jobs = @()
     foreach ($file in $filesToDownload) {
         if (Test-Path $file.Dest) {
             Write-Host "Skipping, already exists: $($file.Dest)"
             continue
         }
-        Invoke-DownloadWithRetry -Url $file.Url -Path $file.Dest
+        $jobs += Start-ThreadJob -ArgumentList $file.Url, $file.Dest -ScriptBlock {
+            param($Url, $Dest)
+            $ProgressPreference = 'SilentlyContinue'
+            $interval = 30
+            $downloadStartTime = Get-Date
+            for ($retries = 20; $retries -gt 0; $retries--) {
+                try {
+                    $attemptStartTime = Get-Date
+                    Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
+                    $attemptSeconds = [math]::Round(((Get-Date) - $attemptStartTime).TotalSeconds, 2)
+                    Write-Output "Downloaded $Url in $attemptSeconds seconds"
+                    return
+                } catch {
+                    $attemptSeconds = [math]::Round(((Get-Date) - $attemptStartTime).TotalSeconds, 2)
+                    Write-Warning "Download failed in $attemptSeconds seconds: $($_.Exception.Message)"
+                    if ($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::NotFound) {
+                        throw "Request returned 404 Not Found for $Url"
+                    }
+                }
+                if ($retries -le 1) {
+                    $totalSeconds = [math]::Round(((Get-Date) - $downloadStartTime).TotalSeconds, 2)
+                    throw "Download of $Url failed after $totalSeconds seconds"
+                }
+                Start-Sleep -Seconds $interval
+            }
+        }
+    }
+
+    if ($jobs.Count -gt 0) {
+        $results = $jobs | Wait-Job | Receive-Job
+        $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
+        $jobs | Remove-Job -Force
+        if ($failed) {
+            throw "One or more downloads failed"
+        }
+        $results | ForEach-Object { Write-Host $_ }
     }
 
     Write-Output "Download complete"

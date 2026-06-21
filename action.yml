@@ -30,6 +30,42 @@ inputs:
 runs:
   using: composite
   steps:
+    # --- Caching: SQL Server installers (Windows) ---
+    - name: Cache SQL Server installers
+      if: ${{ runner.os == 'Windows' && contains(inputs.install, 'sqlengine') }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.download-path || runner.temp }}
+        key: mssql-installer-${{ inputs.version }}-${{ runner.os }}
+
+    # --- Caching: sqlpackage ---
+    - name: Cache sqlpackage (Windows)
+      if: ${{ runner.os == 'Windows' && contains(inputs.install, 'sqlpackage') }}
+      uses: actions/cache@v4
+      with:
+        path: ~\AppData\Local\Temp\chocolatey\sqlpackage
+        key: sqlpackage-choco-${{ runner.os }}
+
+    - name: Cache sqlpackage (Linux/macOS)
+      if: ${{ runner.os != 'Windows' && contains(inputs.install, 'sqlpackage') }}
+      uses: actions/cache@v4
+      with:
+        path: ~/sqlpackage
+        key: sqlpackage-${{ runner.os }}
+
+    # --- Caching: Homebrew (macOS) ---
+    - name: Cache Homebrew packages
+      if: ${{ runner.os == 'macOS' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/Library/Caches/Homebrew
+          /usr/local/Cellar
+        key: homebrew-mssql-${{ runner.os }}-${{ inputs.version }}
+        restore-keys: |
+          homebrew-mssql-${{ runner.os }}-
+
+    # --- Main steps ---
     - name: Download Windows installers
       if: ${{ inputs.download-only == 'true' }}
       shell: pwsh

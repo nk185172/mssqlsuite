@@ -52,7 +52,7 @@ function Wait-SqlServer {
             Write-Output "SQL Server is accepting connections"
             return
         } catch {
-            Start-Sleep -Seconds 3
+            Start-Sleep -Seconds 1
         }
     } while ((Get-Date) -lt $deadline)
     throw "SQL Server at ${HostName}:${Port} did not become available within $TimeoutSeconds seconds"
@@ -131,16 +131,22 @@ function Install-SqlPackage {
     Write-Output "Installing sqlpackage"
 
     if ($ismacos -or $islinux) {
-        $url = if ($ismacos) { "https://aka.ms/sqlpackage-macos" } else { "https://aka.ms/sqlpackage-linux" }
-        curl $url -4 -sL -o '/tmp/sqlpackage.zip'
-        if ($LASTEXITCODE -ne 0) { throw "Failed to download sqlpackage from $url (exit code $LASTEXITCODE)" }
-        $log = unzip /tmp/sqlpackage.zip -d $HOME/sqlpackage
-        if ($LASTEXITCODE -ne 0) { throw "Failed to extract sqlpackage (exit code $LASTEXITCODE)" }
-        chmod +x $HOME/sqlpackage/sqlpackage
-        sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
-        if ($showLog) {
-            $log
-            sqlpackage /version
+        # Skip download/extract if already cached
+        if (Test-Path "$HOME/sqlpackage/sqlpackage") {
+            Write-Output "sqlpackage found in cache, creating symlink only"
+            if ($islinux -or $ismacos) { sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin }
+        } else {
+            $url = if ($ismacos) { "https://aka.ms/sqlpackage-macos" } else { "https://aka.ms/sqlpackage-linux" }
+            curl $url -4 -sL -o '/tmp/sqlpackage.zip'
+            if ($LASTEXITCODE -ne 0) { throw "Failed to download sqlpackage from $url (exit code $LASTEXITCODE)" }
+            $log = unzip /tmp/sqlpackage.zip -d $HOME/sqlpackage
+            if ($LASTEXITCODE -ne 0) { throw "Failed to extract sqlpackage (exit code $LASTEXITCODE)" }
+            chmod +x $HOME/sqlpackage/sqlpackage
+            sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
+            if ($showLog) {
+                $log
+                sqlpackage /version
+            }
         }
     }
 
@@ -189,10 +195,62 @@ function Install-LocalDb {
 $maxAttempts = 2
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
+        # sqlengine and localdb must run first (other tools may depend on the engine).
         if ("sqlengine" -in $Install) { Install-SqlEngine }
-        if ("sqlclient" -in $Install) { Install-SqlClient }
-        if ("sqlpackage" -in $Install) { Install-SqlPackage }
         if ("localdb"   -in $Install) { Install-LocalDb }
+
+        # sqlclient and sqlpackage are independent — install in parallel when both requested.
+        $parallelTasks = @()
+        if ("sqlclient"  -in $Install) { $parallelTasks += "sqlclient" }
+        if ("sqlpackage" -in $Install) { $parallelTasks += "sqlpackage" }
+
+        if ($parallelTasks.Count -gt 1) {
+            $jobs = @()
+            foreach ($task in $parallelTasks) {
+                $jobs += Start-ThreadJob -ArgumentList $task, $showLog, $ismacos, $islinux, $iswindows -ScriptBlock {
+                    param($task, $showLog, $ismacos, $islinux, $iswindows)
+                    $ErrorActionPreference = 'Stop'
+                    if ($task -eq "sqlclient") {
+                        if ($ismacos) {
+                            Write-Output "Installing sqlclient tools"
+                            brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
+                            $log = brew install microsoft/mssql-release/msodbcsql17 microsoft/mssql-release/mssql-tools
+                            if ($LASTEXITCODE -ne 0) { throw "Failed to install sqlclient tools (exit code $LASTEXITCODE)" }
+                            if ($showLog) { $log }
+                        }
+                        Write-Output "sqlclient tools installed"
+                    } elseif ($task -eq "sqlpackage") {
+                        Write-Output "Installing sqlpackage"
+                        if ($ismacos -or $islinux) {
+                            $url = if ($ismacos) { "https://aka.ms/sqlpackage-macos" } else { "https://aka.ms/sqlpackage-linux" }
+                            curl $url -4 -sL -o '/tmp/sqlpackage.zip'
+                            if ($LASTEXITCODE -ne 0) { throw "Failed to download sqlpackage from $url (exit code $LASTEXITCODE)" }
+                            $log = unzip /tmp/sqlpackage.zip -d $HOME/sqlpackage
+                            if ($LASTEXITCODE -ne 0) { throw "Failed to extract sqlpackage (exit code $LASTEXITCODE)" }
+                            chmod +x $HOME/sqlpackage/sqlpackage
+                            sudo ln -sf $HOME/sqlpackage/sqlpackage /usr/local/bin
+                            if ($showLog) { $log; sqlpackage /version }
+                        }
+                        if ($iswindows) {
+                            $log = choco install sqlpackage -y
+                            if ($showLog) { $log; sqlpackage /version }
+                        }
+                        Write-Output "sqlpackage installed"
+                    }
+                }
+            }
+            $results = $jobs | Wait-Job | Receive-Job
+            $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
+            $jobs | Remove-Job -Force
+            if ($failed) {
+                $errMsg = ($failed | ForEach-Object { $_.ChildJobs[0].JobStateInfo.Reason.Message }) -join '; '
+                throw "Parallel install failed: $errMsg"
+            }
+            $results | ForEach-Object { Write-Output $_ }
+        } elseif ($parallelTasks.Count -eq 1) {
+            if ("sqlclient"  -in $Install) { Install-SqlClient }
+            if ("sqlpackage" -in $Install) { Install-SqlPackage }
+        }
         break
     } catch {
         if ($attempt -lt $maxAttempts) {

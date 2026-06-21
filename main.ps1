@@ -35,6 +35,7 @@ function Start-DockerSqlContainer {
     param([string[]]$ExtraArgs = @())
     $dockerArgs = @(
         'run',
+        '--pull', 'never',
         '-e', "ACCEPT_EULA=Y",
         '-e', "SA_PASSWORD=$SaPassword",
         '-e', "MSSQL_COLLATION=$Collation",
@@ -75,6 +76,7 @@ function Install-SqlEngine {
         Write-Output "macOS detected, installing Docker then pulling SQL Server container"
         brew install docker
         colima start --runtime docker
+        docker pull "mcr.microsoft.com/mssql/server:$Version-latest"
         Start-DockerSqlContainer -ExtraArgs '--memory=2g'
         Write-Output "SQL Engine installed at localhost"
     }
@@ -247,10 +249,8 @@ function Install-LocalDb {
     }
 
     Write-Output "Verifying installation"
-    sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "SELECT @@VERSION;"
+    sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "SELECT @@VERSION; ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'; ALTER LOGIN [sa] ENABLE;"
     if ($LASTEXITCODE -ne 0) { throw "SqlLocalDB verification failed (exit code $LASTEXITCODE)" }
-    sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'"
-    sqlcmd -S "(localdb)\MSSQLLocalDB" -Q "ALTER LOGIN [sa] ENABLE"
     Write-Output "SqlLocalDB installed and accessible at (localdb)\MSSQLLocalDB"
 }
 

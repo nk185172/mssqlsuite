@@ -171,7 +171,10 @@ function Invoke-DownloadWindowsSql {
 }
 
 try {
+    $downloadTimer = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-DownloadWindowsSql -Path $path -Version $version
+    $downloadTimer.Stop()
+    Write-Output "Download phase completed in $($downloadTimer.Elapsed.ToString('mm\:ss\.ff'))"
 } catch {
     Write-Error "Error: $($_.Exception.Message)" -ErrorAction Stop
 }

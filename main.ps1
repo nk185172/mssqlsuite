@@ -15,6 +15,15 @@ if ($SaPassword) { Write-Output "::add-mask::$SaPassword" }
 # Convert once here so every function uses a clean bool rather than string comparisons.
 $showLog = $ShowLog -eq 'true'
 
+$totalTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
+function Write-Timing {
+    param([string]$Label, [System.Diagnostics.Stopwatch]$Timer)
+    $elapsed = $Timer.Elapsed.ToString('mm\:ss\.ff')
+    Write-Output "::group::Timing: $Label completed in $elapsed"
+    Write-Output "::endgroup::"
+}
+
 function Write-DockerLog {
     docker ps -a
     docker logs -t sql
@@ -196,8 +205,16 @@ $maxAttempts = 2
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
         # sqlengine and localdb must run first (other tools may depend on the engine).
-        if ("sqlengine" -in $Install) { Install-SqlEngine }
-        if ("localdb"   -in $Install) { Install-LocalDb }
+        if ("sqlengine" -in $Install) {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            Install-SqlEngine
+            $sw.Stop(); Write-Timing 'sqlengine' $sw
+        }
+        if ("localdb" -in $Install) {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            Install-LocalDb
+            $sw.Stop(); Write-Timing 'localdb' $sw
+        }
 
         # sqlclient and sqlpackage are independent — install in parallel when both requested.
         $parallelTasks = @()
@@ -205,6 +222,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         if ("sqlpackage" -in $Install) { $parallelTasks += "sqlpackage" }
 
         if ($parallelTasks.Count -gt 1) {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $jobs = @()
             foreach ($task in $parallelTasks) {
                 $jobs += Start-ThreadJob -ArgumentList $task, $showLog, $ismacos, $islinux, $iswindows -ScriptBlock {
@@ -247,9 +265,12 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
                 throw "Parallel install failed: $errMsg"
             }
             $results | ForEach-Object { Write-Output $_ }
+            $sw.Stop(); Write-Timing 'sqlclient+sqlpackage (parallel)' $sw
         } elseif ($parallelTasks.Count -eq 1) {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
             if ("sqlclient"  -in $Install) { Install-SqlClient }
             if ("sqlpackage" -in $Install) { Install-SqlPackage }
+            $sw.Stop(); Write-Timing ($parallelTasks[0]) $sw
         }
         break
     } catch {
@@ -260,3 +281,8 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         }
     }
 }
+
+$totalTimer.Stop()
+Write-Output "========================================="
+Write-Output "Total mssqlsuite install time: $($totalTimer.Elapsed.ToString('mm\:ss\.ff'))"
+Write-Output "========================================="

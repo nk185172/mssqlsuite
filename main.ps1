@@ -120,14 +120,37 @@ function Install-SqlEngine {
         $cacheMarker = Join-Path $Path "mssql-installed-$Version.marker"
 
         # Fast path: if the installed instance was restored from cache, just start the service
+        $cacheValid = $false
         if ((Test-Path $cacheMarker) -and (Test-Path "$instanceDir\MSSQL\Binn\sqlservr.exe")) {
             Write-Output "SQL Server $Version restored from cache — starting service"
-            Start-Service MSSQLSERVER -ErrorAction SilentlyContinue
-            Wait-SqlServer
-            # Reset SA password (cache may have been created with a different password)
-            sqlcmd -S localhost -Q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'; ALTER LOGIN [sa] ENABLE;"
-            Write-Output "SQL Server $Version ready at localhost (from cache)"
-        } else {
+            $svc = Get-Service MSSQLSERVER -ErrorAction SilentlyContinue
+            if ($null -ne $svc) {
+                Start-Service MSSQLSERVER -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 3
+                $svc.Refresh()
+                if ($svc.Status -eq 'Running') {
+                    try {
+                        Wait-SqlServer
+                        sqlcmd -S localhost -Q "ALTER LOGIN [sa] WITH PASSWORD=N'$SaPassword'; ALTER LOGIN [sa] ENABLE;"
+                        Write-Output "SQL Server $Version ready at localhost (from cache)"
+                        $cacheValid = $true
+                    } catch {
+                        Write-Warning "Cached SQL Server failed to accept connections: $_"
+                        Stop-Service MSSQLSERVER -Force -ErrorAction SilentlyContinue
+                    }
+                } else {
+                    Write-Warning "MSSQLSERVER service did not start (status: $($svc.Status))"
+                }
+            } else {
+                Write-Warning "MSSQLSERVER service not found"
+            }
+            if (-not $cacheValid) {
+                Write-Output "Cache invalid — removing marker and performing fresh install"
+                Remove-Item $cacheMarker -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        if (-not $cacheValid) {
             # Full install path
             Push-Location $Path
             try {

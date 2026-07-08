@@ -147,6 +147,13 @@ function Install-SqlEngine {
             if (-not $cacheValid) {
                 Write-Output "Cache invalid — removing marker and performing fresh install"
                 Remove-Item $cacheMarker -Force -ErrorAction SilentlyContinue
+                # Remove stale instance data files that block setup.exe reinstall
+                if (Test-Path "$instanceDir\MSSQL\DATA\master.mdf") {
+                    Write-Output "Removing stale instance directory: $instanceDir"
+                    Stop-Service MSSQLSERVER -Force -ErrorAction SilentlyContinue
+                    Start-Sleep -Seconds 2
+                    Remove-Item $instanceDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
             }
         }
 

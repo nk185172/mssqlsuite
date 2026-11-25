@@ -62,7 +62,17 @@ if ("sqlengine" -in $Install) {
 
         Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
 
-        .\setup\setup.exe /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 /FILESTREAMSHARENAME=MSSQLSERVER /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
+        $filestreamShareName = "MSSQLSERVER"
+        if (Get-SmbShare -Name $filestreamShareName -ErrorAction SilentlyContinue) {
+            $filestreamShareName = "MSSQLSERVER_$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+            Write-Output "FILESTREAM share MSSQLSERVER already exists; using $filestreamShareName"
+        }
+
+        .\setup\setup.exe /q /ACTION=Install /INSTANCENAME=MSSQLSERVER /ASSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /FEATURES='SQLENGINE,FULLTEXT' /FILESTREAMLEVEL=3 /UPDATEENABLED=0 "/FILESTREAMSHARENAME=$filestreamShareName" /SQLSVCACCOUNT='NT SERVICE\MSSQLSERVER' /SQLSYSADMINACCOUNTS='BUILTIN\ADMINISTRATORS' /TCPENABLED=1 /NPENABLED=0 /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=$Collation $installOptions
+        $setupExitCode = $LASTEXITCODE
+        if ($setupExitCode -notin @(0, 3010)) {
+            throw "SQL Server setup failed with exit code $setupExitCode."
+        }
 
         Set-ItemProperty -path "HKLM:\Software\Microsoft\Microsoft SQL Server\MSSQL$versionMajor.MSSQLSERVER\MSSQLSERVER\" -Name LoginMode -Value 2
         Restart-Service MSSQLSERVER
